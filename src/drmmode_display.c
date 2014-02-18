@@ -50,6 +50,8 @@
 #define DPMS_SERVER
 #include <X11/extensions/dpms.h>
 #endif
+
+#include "driver.h"
 #include "compat-api.h"
 
 static struct dumb_bo *
