@@ -311,7 +311,6 @@ TegraPreInit(ScrnInfoPtr pScrn, int flags)
         return FALSE;
 
     tegra = TegraPTR(pScrn);
-    tegra->SaveGeneration = -1;
     tegra->pEnt = pEnt;
 
     pScrn->displayWidth = 640; /* default it */
@@ -532,7 +531,7 @@ TegraCreateScreenResources(ScreenPtr pScreen)
 
     drmmode_uevent_init(pScrn, &tegra->drmmode);
 
-    if (!tegra->SWCursor)
+    if (!tegra->drmmode.sw_cursor)
         drmmode_map_cursor_bos(pScrn, &tegra->drmmode);
 
     pixels = drmmode_map_front_bo(&tegra->drmmode);
