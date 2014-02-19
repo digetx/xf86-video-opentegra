@@ -78,3 +78,5 @@ typedef struct _TegraRec
 
 void TegraEXAScreenInit(ScreenPtr pScreen);
 void TegraEXAScreenExit(ScreenPtr pScreen);
+
+/* vim: set et sts=4 sw=4 ts=4: */

@@ -269,7 +269,7 @@ TegraAvailableOptions(int chipid, int busid)
 }
 
 static Bool
-TegraDriverFunc(ScrnInfoPtr scrn, xorgDriverFuncOp op, void *data)
+TegraDriverFunc(ScrnInfoPtr pScrn, xorgDriverFuncOp op, void *data)
 {
     xorgHWFlags *flag;
 
@@ -527,6 +527,7 @@ TegraCreateScreenResources(ScreenPtr pScreen)
     PixmapPtr rootPixmap;
     Bool ret;
     void *pixels;
+
     pScreen->CreateScreenResources = tegra->createScreenResources;
     ret = pScreen->CreateScreenResources(pScreen);
     pScreen->CreateScreenResources = TegraCreateScreenResources;
@@ -925,3 +926,5 @@ static XF86ModuleVersionInfo VersRec = {
 };
 
 _X_EXPORT XF86ModuleData opentegraModuleData = { &VersRec, Setup, NULL };
+
+/* vim: set et sts=4 sw=4 ts=4: */
