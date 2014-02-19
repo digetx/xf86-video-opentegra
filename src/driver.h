@@ -58,18 +58,12 @@ typedef struct _TegraRec
     int fd;
 
     EntPtr entityPrivate;
-
-    int Chipset;
     EntityInfoPtr pEnt;
 
-    Bool noAccel;
-    Bool SWCursor;
     CloseScreenProcPtr CloseScreen;
 
     /* Broken-out options. */
     OptionInfoPtr Options;
-
-    unsigned int SaveGeneration;
 
     CreateScreenResourcesProcPtr createScreenResources;
     ScreenBlockHandlerProcPtr BlockHandler;
