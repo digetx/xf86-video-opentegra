@@ -44,6 +44,7 @@ typedef struct
 
 typedef struct _TegraRec
 {
+    struct drm_tegra *drm;
     int fd;
 
     EntPtr entityPrivate;

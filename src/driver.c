@@ -56,6 +56,8 @@
 #include "xf86drm.h"
 #include "xf86drmMode.h"
 
+#include <libdrm/tegra.h>
+
 #include "compat-api.h"
 #include "driver.h"
 
@@ -348,6 +350,12 @@ TegraPreInit(ScrnInfoPtr pScrn, int flags)
     if (tegra->fd < 0)
         return FALSE;
 
+    ret = drm_tegra_new(&tegra->drm, tegra->fd);
+    if (ret < 0) {
+        close(tegra->fd);
+        return FALSE;
+    }
+
     tegra->drmmode.fd = tegra->fd;
 
 #ifdef TEGRA_OUTPUT_SLAVE_SUPPORT
@@ -583,6 +591,8 @@ TegraCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 
     if (pScrn->vtSema)
         TegraLeaveVT(VT_FUNC_ARGS);
+
+    drm_tegra_close(tegra->drm);
 
     pScreen->CreateScreenResources = tegra->createScreenResources;
     pScreen->BlockHandler = tegra->BlockHandler;
