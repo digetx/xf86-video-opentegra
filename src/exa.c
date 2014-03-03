@@ -236,6 +236,12 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
         return FALSE;
 
     /*
+     * It should be possible to support this, but let's bail for now
+     */
+    if (planemask != FB_ALLONES)
+        return FALSE;
+
+    /*
      * It should be possible to support all GX* raster operations given the
      * mapping in the rop3 table, but none other than GXcopy have been
      * validated.
@@ -359,6 +365,12 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
     int err;
 
     if (!tegra->gr2d)
+        return FALSE;
+
+    /*
+     * It should be possible to support this, but let's bail for now
+     */
+    if (planemask != FB_ALLONES)
         return FALSE;
 
     /*
