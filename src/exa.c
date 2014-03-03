@@ -290,7 +290,8 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
 
     *pb->ptr++ = HOST1X_OPCODE_MASK(0x2b, 0x9);
 
-    err = drm_tegra_pushbuf_relocate(pb, priv->bo, 0, 0);
+    err = drm_tegra_pushbuf_relocate(pb, priv->bo,
+                  exaGetPixmapOffset(pPixmap), 0);
     if (err < 0)
         goto free_job;
 
@@ -422,7 +423,8 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
 
     *pb->ptr++ = HOST1X_OPCODE_MASK(0x2b, 0x149);
 
-    err = drm_tegra_pushbuf_relocate(pb, dst->bo, 0, 0);
+    err = drm_tegra_pushbuf_relocate(pb, dst->bo,
+              exaGetPixmapOffset(pDstPixmap), 0);
     if (err < 0) {
         ErrorMsg("destination pixmap relocation failed: %d\n", err);
         goto free_job;
@@ -431,7 +433,8 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
     *pb->ptr++ = 0xdeadbeef; /* dstba */
     *pb->ptr++ = exaGetPixmapPitch(pDstPixmap); /* dstst */
 
-    err = drm_tegra_pushbuf_relocate(pb, src->bo, 0, 0);
+    err = drm_tegra_pushbuf_relocate(pb, src->bo,
+              exaGetPixmapOffset(pSrcPixmap), 0);
     if (err < 0) {
         ErrorMsg("source pixmap relocation failed: %d\n", err);
         goto free_job;
