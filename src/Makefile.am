@@ -38,5 +38,4 @@ opentegra_drv_la_SOURCES = \
 	driver.h \
 	drmmode_display.c \
 	drmmode_display.h \
-	exa.c \
 	host1x.h

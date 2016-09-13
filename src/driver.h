@@ -31,15 +31,8 @@
 #include <drm.h>
 #include <xf86drm.h>
 #include <damage.h>
-#include <exa.h>
 
 #include "drmmode_display.h"
-
-#ifdef LONG64
-#  define FMT_CARD32 "x"
-#else
-#  define FMT_CARD32 "lx"
-#endif
 
 #define TEGRA_ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
 
@@ -79,13 +72,9 @@ typedef struct _TegraRec
     DamagePtr damage;
     Bool dirty_enabled;
 
-    ExaDriverPtr exa;
 } TegraRec, *TegraPtr;
 
 #define TegraPTR(p) ((TegraPtr)((p)->driverPrivate))
 
 void TegraDRI2ScreenInit(ScreenPtr pScreen);
 void TegraDRI2ScreenExit(ScreenPtr pScreen);
-
-void TegraEXAScreenInit(ScreenPtr pScreen);
-void TegraEXAScreenExit(ScreenPtr pScreen);
