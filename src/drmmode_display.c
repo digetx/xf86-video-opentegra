@@ -291,7 +291,7 @@ drmmode_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
 #endif
     }
 
-    output_ids = calloc(sizeof(uint32_t), xf86_config->num_output);
+    output_ids = alloca(sizeof(uint32_t) * xf86_config->num_output);
     if (!output_ids) {
         ret = FALSE;
         goto done;
