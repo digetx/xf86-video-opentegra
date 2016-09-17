@@ -204,7 +204,10 @@ FreeRec(ScrnInfoPtr pScrn)
         if (!(tegra->pEnt->location.type == BUS_PLATFORM &&
               (tegra->pEnt->location.id.plat->flags & XF86_PDEV_SERVER_FD)))
 #endif
+        {
+            drm_tegra_close(tegra->drm);
             close(tegra->fd);
+        }
 
     free(tegra->Options);
     free(tegra);
@@ -684,8 +687,6 @@ TegraCloseScreen(CLOSE_SCREEN_ARGS_DECL)
     TegraEXAScreenExit(pScreen);
     TegraDRI2ScreenExit(pScreen);
 
-    drm_tegra_close(tegra->drm);
-
     pScreen->CreateScreenResources = tegra->createScreenResources;
     pScreen->BlockHandler = tegra->BlockHandler;
 
@@ -801,6 +802,7 @@ TegraScreenInit(SCREEN_INIT_ARGS_DECL)
 
     TegraDRI2ScreenInit(pScreen);
     TegraEXAScreenInit(pScreen);
+    TegraXvInit(pScreen);
 
     /* Must force it before EnterVT, so we are in control of VT and
      * later memory should be bound when allocating, e.g rotate_mem */

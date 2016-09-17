@@ -57,8 +57,8 @@
 #include "compat-api.h"
 
 static struct dumb_bo *
-dumb_bo_create(int fd, const unsigned width, const unsigned height,
-               const unsigned bpp)
+dumb_bo_create(int fd, struct drm_tegra *drm,
+               const unsigned width, const unsigned height, const unsigned bpp)
 {
     struct drm_mode_create_dumb arg;
     struct dumb_bo *bo;
@@ -81,6 +81,8 @@ dumb_bo_create(int fd, const unsigned width, const unsigned height,
     bo->size = arg.size;
     bo->pitch = arg.pitch;
 
+    drm_tegra_bo_wrap(&bo->tegra_bo, drm, bo->handle, 0, bo->size);
+
     return bo;
 
 err_free:
@@ -90,28 +92,17 @@ err_free:
 
 static int dumb_bo_map(int fd, struct dumb_bo *bo)
 {
-    struct drm_mode_map_dumb arg;
     int ret;
-    void *map;
 
     if (bo->ptr) {
         bo->map_count++;
         return 0;
     }
 
-    memset(&arg, 0, sizeof(arg));
-    arg.handle = bo->handle;
-
-    ret = drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &arg);
+    ret = drm_tegra_bo_map(bo->tegra_bo, &bo->ptr);
     if (ret)
         return ret;
 
-    map = mmap(0, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
-               arg.offset);
-    if (map == MAP_FAILED)
-        return -errno;
-
-    bo->ptr = map;
     return 0;
 }
 
@@ -129,7 +120,7 @@ static int dumb_bo_destroy(int fd, struct dumb_bo *bo)
     int ret;
 
     if (bo->ptr) {
-        munmap(bo->ptr, bo->size);
+        drm_tegra_bo_unmap(bo->tegra_bo);
         bo->ptr = NULL;
     }
 
@@ -140,6 +131,7 @@ static int dumb_bo_destroy(int fd, struct dumb_bo *bo)
     if (ret)
         return -errno;
 
+    free(bo->tegra_bo);
     free(bo);
     return 0;
 }
@@ -547,6 +539,7 @@ drmmode_crtc_init(ScrnInfoPtr pScrn, drmmode_ptr drmmode, int num)
     priv = xnfcalloc(sizeof(*priv), 1);
     priv->mode_crtc = drmModeGetCrtc(drmmode->fd, crtc_id);
     priv->drmmode = drmmode;
+    priv->crtc_pipe = num;
     crtc->driver_private = priv;
 
     if (!drmmode->want_sw_cursor && !drmmode->need_sw_cursor) {
@@ -1053,6 +1046,7 @@ drmmode_clones_init(ScrnInfoPtr scrn, drmmode_ptr drmmode)
 static Bool
 drmmode_xf86crtc_resize(ScrnInfoPtr scrn, int width, int height)
 {
+    TegraPtr tegra = TegraPTR(scrn);
     xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(scrn);
     drmmode_crtc_private_ptr drmmode_crtc = xf86_config->crtc[0]->driver_private;
     drmmode_ptr drmmode = drmmode_crtc->drmmode;
@@ -1078,7 +1072,8 @@ drmmode_xf86crtc_resize(ScrnInfoPtr scrn, int width, int height)
     old_fb_id = drmmode->fb_id;
     old_front = drmmode->front_bo;
 
-    drmmode->front_bo = dumb_bo_create(drmmode->fd, width, height, scrn->bitsPerPixel);
+    drmmode->front_bo = dumb_bo_create(drmmode->fd, tegra->drm,
+                                       width, height, scrn->bitsPerPixel);
     if (!drmmode->front_bo)
         goto fail;
 
@@ -1427,7 +1422,8 @@ Bool drmmode_create_initial_bos(ScrnInfoPtr pScrn, drmmode_ptr drmmode)
     width = pScrn->virtualX;
     height = pScrn->virtualY;
 
-    drmmode->front_bo = dumb_bo_create(drmmode->fd, width, height, bpp);
+    drmmode->front_bo = dumb_bo_create(drmmode->fd, tegra->drm,
+                                       width, height, bpp);
     if (!drmmode->front_bo)
         return FALSE;
 
@@ -1440,7 +1436,8 @@ Bool drmmode_create_initial_bos(ScrnInfoPtr pScrn, drmmode_ptr drmmode)
     for (i = 0; i < xf86_config->num_crtc; i++) {
         xf86CrtcPtr crtc = xf86_config->crtc[i];
         drmmode_crtc_private_ptr drmmode_crtc = crtc->driver_private;
-        drmmode_crtc->cursor_bo = dumb_bo_create(drmmode->fd, width, height, bpp);
+        drmmode_crtc->cursor_bo = dumb_bo_create(drmmode->fd, tegra->drm,
+                                                 width, height, bpp);
     }
 
     return TRUE;
@@ -1516,6 +1513,7 @@ void drmmode_free_bos(ScrnInfoPtr pScrn, drmmode_ptr drmmode)
 /* ugly workaround to see if we can create 32bpp */
 void drmmode_get_default_bpp(ScrnInfoPtr pScrn, drmmode_ptr drmmode, int *depth, int *bpp)
 {
+    TegraPtr tegra = TegraPTR(pScrn);
     drmModeResPtr mode_res;
     uint64_t value;
     struct dumb_bo *bo;
@@ -1543,7 +1541,7 @@ void drmmode_get_default_bpp(ScrnInfoPtr pScrn, drmmode_ptr drmmode, int *depth,
         mode_res->min_height = 1;
 
     /*create a bo */
-    bo = dumb_bo_create(drmmode->fd, mode_res->min_width,
+    bo = dumb_bo_create(drmmode->fd, tegra->drm, mode_res->min_width,
                         mode_res->min_height, 32);
     if (!bo) {
         *bpp = 24;

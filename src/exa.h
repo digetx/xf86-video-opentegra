@@ -27,13 +27,8 @@
 
 #include <xorg/exa.h>
 
-#include <libdrm/tegra.h>
-
 typedef struct _TegraEXARec{
-    struct drm_tegra_pushbuf *pushbuf;
-    struct drm_tegra_channel *gr2d;
-    struct drm_tegra_job *job;
-    struct drm_tegra_bo *bo;
+    struct tegra_2d_context *ctx_2d;
 
     ExaDriverPtr driver;
 } *TegraEXAPtr;

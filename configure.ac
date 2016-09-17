@@ -92,6 +92,8 @@ AC_SUBST([moduledir])
 AC_CONFIG_FILES([
 	Makefile
 	src/Makefile
+	src/2d/Makefile
+	src/2d/TLSF/Makefile
 	man/Makefile
 ])
 

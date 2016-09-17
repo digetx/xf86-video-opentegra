@@ -24,11 +24,13 @@
 # _ladir passes a dummy rpath to libtool so the thing will actually link
 # TODO: -nostdlib/-Bstatic/-lgcc platform magic, not installing the .a, etc.
 
+SUBDIRS = 2d
+
 AM_CFLAGS = $(XORG_CFLAGS) $(DRM_CFLAGS) $(UDEV_CFLAGS) $(CWARNFLAGS)
 
 opentegra_drv_la_LTLIBRARIES = opentegra_drv.la
 opentegra_drv_la_LDFLAGS = -module -avoid-version
-opentegra_drv_la_LIBADD = @UDEV_LIBS@ @DRM_LIBS@
+opentegra_drv_la_LIBADD = @UDEV_LIBS@ @DRM_LIBS@ 2d/libtegra_2d.la
 opentegra_drv_ladir = @moduledir@/drivers
 
 opentegra_drv_la_SOURCES = \
@@ -40,3 +42,7 @@ opentegra_drv_la_SOURCES = \
 	drmmode_display.h \
 	host1x.h \
 	exa.c
+
+opentegra_drv_la_SOURCES += \
+	 video_overlay.c \
+	 drm_plane.c

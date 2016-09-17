@@ -87,4 +87,6 @@ void TegraDRI2ScreenExit(ScreenPtr pScreen);
 void TegraEXAScreenInit(ScreenPtr pScreen);
 void TegraEXAScreenExit(ScreenPtr pScreen);
 
+void TegraXvInit(ScreenPtr pScreen);
+
 /* vim: set et sts=4 sw=4 ts=4: */

@@ -28,6 +28,8 @@
 #ifndef DRMMODE_DISPLAY_H
 #define DRMMODE_DISPLAY_H
 
+#include <libdrm/tegra.h>
+
 #include "xf86drmMode.h"
 #include "xorgVersion.h"
 #ifdef HAVE_UDEV
@@ -48,6 +50,7 @@
 #endif
 
 struct dumb_bo {
+    struct drm_tegra_bo *tegra_bo;
     uint32_t handle;
     uint32_t size;
     void *ptr;
@@ -82,7 +85,7 @@ typedef struct {
 typedef struct {
     drmmode_ptr drmmode;
     drmModeCrtcPtr mode_crtc;
-    int hw_id;
+    uint32_t crtc_pipe;
     struct dumb_bo *cursor_bo;
     unsigned rotate_fb_id;
     uint16_t lut_r[256], lut_g[256], lut_b[256];
