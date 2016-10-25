@@ -90,6 +90,19 @@ typedef struct {
     unsigned rotate_fb_id;
     uint16_t lut_r[256], lut_g[256], lut_b[256];
     DamagePtr slave_damage;
+    /**
+     * @{ MSC (vblank count) handling for the PRESENT extension.
+     *
+     * The kernel's vblank counters are 32 bits and apparently full of
+     * lies, and we need to give a reliable 64-bit msc for GL, so we
+     * have to track and convert to a userland-tracked 64-bit msc.
+     */
+    int32_t vblank_offset;
+    uint32_t msc_prev;
+    uint64_t msc_high;
+    /** @} */
+
+    int dpms_mode;
 } drmmode_crtc_private_rec, *drmmode_crtc_private_ptr;
 
 typedef struct {

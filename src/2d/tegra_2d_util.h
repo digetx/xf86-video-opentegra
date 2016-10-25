@@ -53,8 +53,14 @@
 #define FLOAT_TO_FIXED_6_12(fp) (((int32_t) (fp * 4096.0f + 0.5f)) & ((1<<18)-1))
 #define FLOAT_TO_FIXED_0_8(fp) (((int32_t) (fp * 256.0f + 0.5f)) & ((1<<8)-1))
 
+// #define SET_ERROR(fmt, args...) \
+//     fprintf(stderr, "%s: %d: (TEGRA2D ERROR) " fmt, __func__, __LINE__, ##args);
+
+#include <xorg-server.h>
+#include <xf86.h>
+
 #define SET_ERROR(fmt, args...) \
-    fprintf(stderr, "%s: %d: (TEGRA2D ERROR) " fmt, __func__, __LINE__, ##args);
+    xf86ErrorF("%s: %d: (TEGRA2D ERROR) " fmt, __FILE__, __LINE__, ##args)
 
 struct tegra_2d_surface_area {
     const struct tegra_2d_surface *surface;

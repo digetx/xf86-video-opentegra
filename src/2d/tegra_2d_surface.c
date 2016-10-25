@@ -89,7 +89,8 @@ int tegra_2d_allocate_surface(struct tegra_2d_context *ctx,
                               int width, int height, int pitch,
                               enum tegra_2d_layout layout,
                               enum tegra_2d_format format,
-                              struct drm_tegra_bo *bo)
+                              struct drm_tegra_bo *bo,
+                              int from_pool)
 {
     struct tegra_2d_surface *surf = *surface;
     uint32_t num_bytes;
@@ -164,7 +165,18 @@ int tegra_2d_allocate_surface(struct tegra_2d_context *ctx,
     if (surf->bo && surf->data == NULL)
         drm_tegra_bo_unref(surf->bo);
 
-    if (bo) {
+    if (!bo && !from_pool) {
+        terga_2d_mem_free(&ctx->allocator, surf->data);
+        surf->data = NULL;
+
+        result = drm_tegra_bo_new(&surf->bo, ctx->drm, flags, num_bytes);
+
+        if (result != 0) {
+            SET_ERROR("drm_tegra_bo_new() failed %d\n", result);
+            result = TEGRA_2D_MEMORY_FAILURE;
+            goto err_cleanup;
+        }
+    } else if (bo) {
         surf->bo = drm_tegra_bo_ref(bo);
         terga_2d_mem_free(&ctx->allocator, surf->data);
         surf->data = NULL;
@@ -334,4 +346,25 @@ void tegra_2d_surface_release_access(const struct tegra_2d_surface *surface)
 
     if (drm_tegra_bo_unmap(surface->bo))
         SET_ERROR("drm_tegra_bo_unmap() failed\n");
+}
+
+int tegra_2d_surface_get_bo(const struct tegra_2d_surface *surface,
+                            struct drm_tegra_bo **bo)
+{
+    if (surface == NULL) {
+        SET_ERROR("surface == NULL\n");
+        return TEGRA_2D_INVALID_PARAMETER;
+    }
+
+    if (bo == NULL)
+        return TEGRA_2D_INVALID_PARAMETER;
+
+    if (surface->bo == NULL) {
+        SET_ERROR("surface->bo == NULL\n");
+        return TEGRA_2D_INVALID_BUFFER;
+    }
+
+    *bo = surface->bo;
+
+    return TEGRA_2D_OK;
 }

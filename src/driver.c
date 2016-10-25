@@ -687,6 +687,8 @@ TegraCloseScreen(CLOSE_SCREEN_ARGS_DECL)
     TegraEXAScreenExit(pScreen);
     TegraDRI2ScreenExit(pScreen);
 
+    ms_vblank_close_screen(pScreen);
+
     pScreen->CreateScreenResources = tegra->createScreenResources;
     pScreen->BlockHandler = tegra->BlockHandler;
 
@@ -799,6 +801,12 @@ TegraScreenInit(SCREEN_INIT_ARGS_DECL)
         xf86_cursors_init(pScreen, tegra->cursor_width, tegra->cursor_height,
                           HARDWARE_CURSOR_SOURCE_MASK_INTERLEAVE_64 |
                           HARDWARE_CURSOR_ARGB);
+
+    if (!ms_vblank_screen_init(pScreen)) {
+        xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+                   "Failed to initialize vblank support.\n");
+        return FALSE;
+    }
 
     TegraDRI2ScreenInit(pScreen);
     TegraEXAScreenInit(pScreen);

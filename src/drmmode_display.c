@@ -237,6 +237,8 @@ drmmode_ConvertToKMode(ScrnInfoPtr scrn, drmModeModeInfo *kmode,
 static void
 drmmode_crtc_dpms(xf86CrtcPtr crtc, int mode)
 {
+    drmmode_crtc_private_ptr drmmode_crtc = crtc->driver_private;
+    drmmode_crtc->dpms_mode = mode;
 }
 
 static Bool

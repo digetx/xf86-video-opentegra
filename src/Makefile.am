@@ -41,7 +41,9 @@ opentegra_drv_la_SOURCES = \
 	drmmode_display.c \
 	drmmode_display.h \
 	host1x.h \
-	exa.c
+	exa.c \
+	vblank.c \
+	vblank.h
 
 opentegra_drv_la_SOURCES += \
 	 video_overlay.c \

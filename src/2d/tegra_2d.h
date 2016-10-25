@@ -171,7 +171,8 @@ int tegra_2d_allocate_surface(struct tegra_2d_context *ctx,
                               int width, int height, int pitch,
                               enum tegra_2d_layout layout,
                               enum tegra_2d_format format,
-                              struct drm_tegra_bo *bo);
+                              struct drm_tegra_bo *bo,
+                              int from_pool);
 
 int tegra_2d_free_surface(struct tegra_2d_context *ctx,
                           struct tegra_2d_surface **surface);
@@ -196,5 +197,8 @@ int tegra_2d_surface_acquire_access(struct tegra_2d_context *ctx,
                                     void **data);
 
 void tegra_2d_surface_release_access(const struct tegra_2d_surface *surface);
+
+int tegra_2d_surface_get_bo(const struct tegra_2d_surface *surface,
+                            struct drm_tegra_bo **bo);
 
 #endif

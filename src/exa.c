@@ -28,12 +28,12 @@
 
 #include "xf86.h"
 
-#include "host1x.h"
 #include "driver.h"
 #include "exa.h"
 #include "compat-api.h"
 
 #include "2d/tegra_2d.h"
+#include "tegra_pixmap.h"
 
 /*
  * Alignment to 16 bytes isn't strictly necessary for all buffers, but
@@ -45,21 +45,11 @@
     ((((width * bitsPerPixel + 7) / 8) + (32) - 1) & ~((32) - 1))
 
 #define ErrorMsg(fmt, args...)                                          \
-{                                                                       \
-    fprintf(stderr, "%s:%d/%s(): " fmt,                                 \
-            __FILE__, __LINE__, __func__, ##args);                      \
-}
-//                                                                         \
-//     xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "%s:%d/%s(): " fmt,           \
-//                __FILE__, __LINE__, __func__, ##args);                   \
+                                                                        \
+    xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "%s:%d/%s(): " fmt,           \
+               __FILE__, __LINE__, __func__, ##args);                   \
 
-typedef struct {
-    struct tegra_2d_surface *surf;
-    struct tegra_2d_surface *surf_src;
-    void *fallback_data;
-    PixmapPtr srcPixmap;
-    int display:1;
-} TegraPixmapRec, *TegraPixmapPtr;
+static struct tegra_2d_surface *surf_src_scratch;
 
 static int TegraEXAMarkSync(ScreenPtr pScreen)
 {
@@ -79,13 +69,13 @@ static Bool TegraEXAPrepareAccess(PixmapPtr pPixmap, int index)
     int result;
 
     if (tegra_pixmap->surf) {
+        ErrorMsg("Surface 0x%08X\n", tegra_pixmap->surf);
+
         result = tegra_2d_surface_acquire_access(tegraEXA->ctx_2d,
                                                  tegra_pixmap->surf,
                                                  &pPixmap->devPrivate.ptr);
         if (result == TEGRA_2D_OK)
             return TRUE;
-
-        ErrorMsg("Surface 0x%08X\n", tegra_pixmap->surf);
     }
 
     ErrorMsg("failed\n");
@@ -95,11 +85,12 @@ static Bool TegraEXAPrepareAccess(PixmapPtr pPixmap, int index)
 
 static void TegraEXAFinishAccess(PixmapPtr pPixmap, int index)
 {
+    ScrnInfoPtr pScrn           = xf86ScreenToScrn(pPixmap->drawable.pScreen);
     TegraPixmapPtr tegra_pixmap = exaGetPixmapDriverPrivate(pPixmap);
 
     if (tegra_pixmap->surf) {
-        tegra_2d_surface_release_access(tegra_pixmap->surf);
         ErrorMsg("Surface 0x%08X\n", tegra_pixmap->surf);
+        tegra_2d_surface_release_access(tegra_pixmap->surf);
     }
 }
 
@@ -108,6 +99,7 @@ static void TegraEXAFinishAccess(PixmapPtr pPixmap, int index)
  */
 static Bool TegraEXAPixmapIsOffscreen(PixmapPtr pPixmap)
 {
+    ScrnInfoPtr pScrn           = xf86ScreenToScrn(pPixmap->drawable.pScreen);
     TegraPixmapPtr tegra_pixmap = exaGetPixmapDriverPrivate(pPixmap);
 
     if (tegra_pixmap && tegra_pixmap->surf)
@@ -134,6 +126,10 @@ static void *TegraEXACreatePixmap2(ScreenPtr pScreen, int width, int height,
 
     if (!tegra_pixmap)
         return NULL;
+
+    tegra_pixmap->from_pool = (usage_hint != TEGRA_PIXMAP_USAGE_DRI);
+
+    return tegra_pixmap;
 
     switch (depth) {
     case 16:
@@ -178,7 +174,8 @@ static void *TegraEXACreatePixmap2(ScreenPtr pScreen, int width, int height,
                                        width, height, 0,
                                        TEGRA_2D_LAYOUT_LINEAR,
                                        format,
-                                       NULL);
+                                       NULL,
+                                       tegra_pixmap->from_pool);
     if (result != TEGRA_2D_OK) {
         ErrorMsg("tegra_2d_allocate_surface() failed %d\n", result);
         goto fallback;
@@ -215,6 +212,8 @@ static void TegraEXADestroyPixmap(ScreenPtr pScreen, void *driverPriv)
 {
     ScrnInfoPtr pScrn           = xf86ScreenToScrn(pScreen);
     TegraPixmapPtr tegra_pixmap = driverPriv;
+
+    ErrorMsg("Surface 0x%08X\n", tegra_pixmap->surf);
 
     TegraEXADestroySurface(pScrn, tegra_pixmap);
     free(tegra_pixmap);
@@ -297,7 +296,8 @@ static Bool TegraEXAModifyPixmapHeader(PixmapPtr pPixmap,
                                        width, height, pitch,
                                        TEGRA_2D_LAYOUT_LINEAR,
                                        format,
-                                       bo);
+                                       bo,
+                                       tegra_pixmap->from_pool);
     if (result != TEGRA_2D_OK) {
         ErrorMsg("tegra_2d_allocate_surface() failed %d\n", result);
         /*
@@ -497,8 +497,7 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
              pDstPixmap->drawable.bitsPerPixel, pDstPixmap->drawable.depth,
              pDstPixmap->drawable.width, pDstPixmap->drawable.height);
 
-    tegra_pixmap_dst->surf_src = tegra_pixmap_src->surf;
-    tegra_pixmap_dst->srcPixmap = pSrcPixmap;
+    surf_src_scratch = tegra_pixmap_src->surf;
 
     return TRUE;
 fail:
@@ -546,7 +545,7 @@ static void TegraEXACopy(PixmapPtr pDstPixmap,
 
     result = tegra_2d_copy(tegraEXA->ctx_2d,
                            tegra_pixmap_dst->surf,
-                           tegra_pixmap_dst->surf_src,
+                           surf_src_scratch,
                            &dst_rect,
                            &src_rect,
                            TEGRA_2D_TRANSFORM_IDENTITY);
@@ -756,7 +755,7 @@ static Bool TegraEXAPrepareComposite(int op,
              pDst->drawable.bitsPerPixel, pDst->drawable.depth,
              pSrc->drawable.width, pSrc->drawable.height);
 
-    tegra_pixmap_dst->surf_src = tegra_pixmap_src->surf;
+    surf_src_scratch = tegra_pixmap_src->surf;
 
     return TRUE;
 fail:
@@ -795,7 +794,7 @@ static void TegraEXAComposite(PixmapPtr pDst, int srcX, int srcY, int maskX,
 
     result = tegra_2d_copy(tegraEXA->ctx_2d,
                            tegra_pixmap_dst->surf,
-                           tegra_pixmap_dst->surf_src,
+                           surf_src_scratch,
                            &dst_rect,
                            &src_rect,
                            TEGRA_2D_TRANSFORM_IDENTITY);

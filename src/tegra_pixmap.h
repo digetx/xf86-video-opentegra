@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 NVIDIA Corporation
+ * Copyright 2016 Dmitry Osipenko <digetx@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -22,24 +22,16 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef HOST1X_H
-#define HOST1X_H
+#ifndef TEGRA_PIXMAP_H
+#define TEGRA_PIXMAP_H
 
-#define HOST1X_OPCODE_SETCL(offset, classid, mask) \
-    ((0x0 << 28) | (((offset) & 0xfff) << 16) | (((classid) & 0x3ff) << 6) | ((mask) & 0x3f))
-#define HOST1X_OPCODE_INCR(offset, count) \
-    ((0x1 << 28) | (((offset) & 0xfff) << 16) | ((count) & 0xffff))
-#define HOST1X_OPCODE_NONINCR(offset, count) \
-    ((0x2 << 28) | (((offset) & 0xfff) << 16) | ((count) & 0xffff))
-#define HOST1X_OPCODE_MASK(offset, mask) \
-    ((0x3 << 28) | (((offset) & 0xfff) << 16) | ((mask) & 0xffff))
-#define HOST1X_OPCODE_IMM(offset, data) \
-    ((0x4 << 28) | (((offset) & 0xfff) << 16) | ((data) & 0xffff))
-#define HOST1X_OPCODE_EXTEND(subop, value) \
-    ((0xe << 28) | (((subop) & 0xf) << 24) | ((value) & 0xffffff))
+#define TEGRA_PIXMAP_USAGE_DRI  0x1000
 
-#define HOST1X_CLASS_GR2D 0x51
+typedef struct {
+    struct tegra_2d_surface *surf;
+    void *fallback_data;
+    unsigned display:1;
+    unsigned from_pool:1;
+} TegraPixmapRec, *TegraPixmapPtr;
 
-#endif /* HOST1X_H */
-
-/* vim: set et sts=4 sw=4 ts=4: */
+#endif /* TEGRA_PIXMAP_H */
