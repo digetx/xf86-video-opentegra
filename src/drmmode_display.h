@@ -83,6 +83,7 @@ typedef struct {
 typedef struct {
     drmmode_ptr drmmode;
     drmModeCrtcPtr mode_crtc;
+    uint32_t crtc_pipe;
     int hw_id;
     struct dumb_bo *cursor_bo;
     unsigned rotate_fb_id;

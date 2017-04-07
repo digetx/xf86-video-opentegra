@@ -33,6 +33,8 @@
 #include "exa.h"
 #include "compat-api.h"
 
+#include "drm/tegra.h"
+
 #define EXA_ALIGN(offset, align) \
     (((offset) + (align) - 1) & ~((align) - 1))
 
@@ -62,7 +64,7 @@ static const uint8_t rop3[] = {
 };
 
 typedef struct {
-    struct drm_tegra_bo *bo;
+    struct xorg_drm_tegra_bo *bo;
 } TegraPixmapRec, *TegraPixmapPtr;
 
 static inline unsigned int TegraEXAPitch(unsigned int width, unsigned int bpp)
@@ -73,7 +75,7 @@ static inline unsigned int TegraEXAPitch(unsigned int width, unsigned int bpp)
      * buffer's pitch is too small (which happens for very small, low-bpp
      * pixmaps).
      */
-    return EXA_ALIGN((width * bpp + 7) / 8, 16);
+    return EXA_ALIGN((width * bpp + 7) / 8, 8);
 }
 
 static int TegraEXAMarkSync(ScreenPtr pScreen)
@@ -94,7 +96,7 @@ static Bool TegraEXAPrepareAccess(PixmapPtr pPix, int index)
     TegraPixmapPtr priv = exaGetPixmapDriverPrivate(pPix);
     int err;
 
-    err = drm_tegra_bo_map(priv->bo, &pPix->devPrivate.ptr);
+    err = xorg_drm_tegra_bo_map(priv->bo, &pPix->devPrivate.ptr);
     if (err < 0) {
         ErrorMsg("failed to map buffer object: %d\n", err);
         return FALSE;
@@ -109,7 +111,7 @@ static void TegraEXAFinishAccess(PixmapPtr pPix, int index)
     TegraPixmapPtr priv = exaGetPixmapDriverPrivate(pPix);
     int err;
 
-    err = drm_tegra_bo_unmap(priv->bo);
+    err = xorg_drm_tegra_bo_unmap(priv->bo);
     if (err < 0)
         ErrorMsg("failed to unmap buffer object: %d\n", err);
 }
@@ -146,7 +148,7 @@ static void TegraEXADestroyPixmap(ScreenPtr pScreen, void *driverPriv)
 {
     TegraPixmapPtr priv = driverPriv;
 
-    drm_tegra_bo_put(priv->bo);
+    xorg_drm_tegra_bo_put(priv->bo);
     free(priv);
 }
 
@@ -177,7 +179,7 @@ static Bool TegraEXAModifyPixmapHeader(PixmapPtr pPixmap, int width,
             size = pPixmap->drawable.width * pPixmap->drawable.height *
                    pPixmap->drawable.bitsPerPixel / 8;
 
-            err = drm_tegra_bo_wrap(&priv->bo, tegra->drm, handle, 0, size);
+            err = xorg_drm_tegra_bo_wrap(&priv->bo, tegra->drm, handle, 0, size);
             if (err < 0)
                 return FALSE;
 
@@ -191,7 +193,7 @@ static Bool TegraEXAModifyPixmapHeader(PixmapPtr pPixmap, int width,
         pPixmap->devPrivate.ptr = pPixData;
         pPixmap->devKind = devKind;
 
-        drm_tegra_bo_put(priv->bo);
+        xorg_drm_tegra_bo_put(priv->bo);
         priv->bo = NULL;
 
         return FALSE;
@@ -205,12 +207,12 @@ static Bool TegraEXAModifyPixmapHeader(PixmapPtr pPixmap, int width,
     size = pPixmap->devKind * height;
 
     if (priv->bo) {
-        drm_tegra_bo_put(priv->bo);
+        xorg_drm_tegra_bo_put(priv->bo);
         priv->bo = NULL;
     }
 
     if (!priv->bo) {
-        err = drm_tegra_bo_new(&priv->bo, tegra->drm, 0, size);
+        err = xorg_drm_tegra_bo_new(&priv->bo, tegra->drm, 0, size);
         if (err < 0) {
             ErrorMsg("failed to allocate %ux%u (%zu) buffer object: %d\n",
                      width, height, size, err);
@@ -228,7 +230,7 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
     TegraPixmapPtr priv = exaGetPixmapDriverPrivate(pPixmap);
     unsigned int bpp = pPixmap->drawable.bitsPerPixel;
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
-    struct drm_tegra_pushbuf *pb;
+    struct xorg_drm_tegra_pushbuf *pb;
     uint32_t value;
     int err;
 
@@ -256,11 +258,11 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
     if (bpp != 32 && bpp != 16)
         return FALSE;
 
-    err = drm_tegra_job_new(&tegra->job, tegra->gr2d);
+    err = xorg_drm_tegra_job_new(&tegra->job, tegra->gr2d);
     if (err < 0)
         return FALSE;
 
-    err = drm_tegra_pushbuf_new(&tegra->pushbuf, tegra->job, tegra->bo, 0);
+    err = xorg_drm_tegra_pushbuf_new(&tegra->pushbuf, tegra->job, tegra->bo, 0);
     if (err < 0)
         goto free_job;
 
@@ -290,7 +292,7 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
 
     *pb->ptr++ = HOST1X_OPCODE_MASK(0x2b, 0x9);
 
-    err = drm_tegra_pushbuf_relocate(pb, priv->bo,
+    err = xorg_drm_tegra_pushbuf_relocate(pb, priv->bo,
                   exaGetPixmapOffset(pPixmap), 0);
     if (err < 0)
         goto free_job;
@@ -305,7 +307,7 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
     return TRUE;
 
 free_job:
-    drm_tegra_job_free(tegra->job);
+    xorg_drm_tegra_job_free(tegra->job);
     tegra->pushbuf = NULL;
     tegra->job = NULL;
 
@@ -316,7 +318,7 @@ static void TegraEXASolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 {
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pPixmap->drawable.pScreen);
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
-    struct drm_tegra_pushbuf *pb;
+    struct xorg_drm_tegra_pushbuf *pb;
     int err;
 
     pb = tegra->pushbuf;
@@ -325,7 +327,7 @@ static void TegraEXASolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
     *pb->ptr++ = (y2 - y1) << 16 | (x2 - x1);
     *pb->ptr++ = y1 << 16 | x1;
 
-    err = drm_tegra_pushbuf_sync(pb, DRM_TEGRA_SYNCPT_COND_OP_DONE);
+    err = xorg_drm_tegra_pushbuf_sync(pb, DRM_TEGRA_SYNCPT_COND_OP_DONE);
     if (err < 0)
         ErrorMsg("failed to insert syncpoint increment: %d\n", err);
 }
@@ -334,23 +336,23 @@ static void TegraEXADoneSolid(PixmapPtr pPixmap)
 {
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pPixmap->drawable.pScreen);
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
-    struct drm_tegra_fence *fence;
+    struct xorg_drm_tegra_fence *fence;
     int err;
 
-    err = drm_tegra_job_submit(tegra->job, &fence);
+    err = xorg_drm_tegra_job_submit(tegra->job, &fence);
     if (err < 0) {
         ErrorMsg("failed to submit job: %d\n", err);
         goto free_job;
     }
 
-    err = drm_tegra_fence_wait(fence);
+    err = xorg_drm_tegra_fence_wait(fence);
     if (err < 0)
         ErrorMsg("failed to wait for fence: %d\n", err);
 
-    drm_tegra_fence_free(fence);
+    xorg_drm_tegra_fence_free(fence);
 
 free_job:
-    drm_tegra_job_free(tegra->job);
+    xorg_drm_tegra_job_free(tegra->job);
     tegra->pushbuf = NULL;
     tegra->job = NULL;
 }
@@ -362,7 +364,7 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
     TegraPixmapPtr src = exaGetPixmapDriverPrivate(pSrcPixmap);
     TegraPixmapPtr dst = exaGetPixmapDriverPrivate(pDstPixmap);
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
-    struct drm_tegra_pushbuf *pb;
+    struct xorg_drm_tegra_pushbuf *pb;
     int err;
 
     if (!tegra->gr2d)
@@ -391,13 +393,13 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
         pDstPixmap->drawable.bitsPerPixel != 32)
         return FALSE;
 
-    err = drm_tegra_job_new(&tegra->job, tegra->gr2d);
+    err = xorg_drm_tegra_job_new(&tegra->job, tegra->gr2d);
     if (err < 0) {
         ErrorMsg("failed to create job: %d\n", err);
         return FALSE;
     }
 
-    err = drm_tegra_pushbuf_new(&tegra->pushbuf, tegra->job, tegra->bo, 0);
+    err = xorg_drm_tegra_pushbuf_new(&tegra->pushbuf, tegra->job, tegra->bo, 0);
     if (err < 0) {
         ErrorMsg("failed to create push buffer: %d\n", err);
         goto free_job;
@@ -423,7 +425,7 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
 
     *pb->ptr++ = HOST1X_OPCODE_MASK(0x2b, 0x149);
 
-    err = drm_tegra_pushbuf_relocate(pb, dst->bo,
+    err = xorg_drm_tegra_pushbuf_relocate(pb, dst->bo,
               exaGetPixmapOffset(pDstPixmap), 0);
     if (err < 0) {
         ErrorMsg("destination pixmap relocation failed: %d\n", err);
@@ -433,7 +435,7 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
     *pb->ptr++ = 0xdeadbeef; /* dstba */
     *pb->ptr++ = exaGetPixmapPitch(pDstPixmap); /* dstst */
 
-    err = drm_tegra_pushbuf_relocate(pb, src->bo,
+    err = xorg_drm_tegra_pushbuf_relocate(pb, src->bo,
               exaGetPixmapOffset(pSrcPixmap), 0);
     if (err < 0) {
         ErrorMsg("source pixmap relocation failed: %d\n", err);
@@ -446,7 +448,7 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
     return TRUE;
 
 free_job:
-    drm_tegra_job_free(tegra->job);
+    xorg_drm_tegra_job_free(tegra->job);
     tegra->pushbuf = NULL;
     tegra->job = NULL;
 
@@ -458,7 +460,7 @@ static void TegraEXACopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX,
 {
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pDstPixmap->drawable.pScreen);
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
-    struct drm_tegra_pushbuf *pb;
+    struct xorg_drm_tegra_pushbuf *pb;
     int err;
     uint32_t controlmain;
 
@@ -493,7 +495,7 @@ static void TegraEXACopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX,
     *pb->ptr++ = srcY << 16 | srcX; /* srcps */
     *pb->ptr++ = dstY << 16 | dstX; /* dstps */
 
-    err = drm_tegra_pushbuf_sync(pb, DRM_TEGRA_SYNCPT_COND_OP_DONE);
+    err = xorg_drm_tegra_pushbuf_sync(pb, DRM_TEGRA_SYNCPT_COND_OP_DONE);
     if (err < 0)
         ErrorMsg("failed to insert syncpoint increment: %d\n", err);
 }
@@ -502,23 +504,23 @@ static void TegraEXADoneCopy(PixmapPtr pDstPixmap)
 {
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pDstPixmap->drawable.pScreen);
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
-    struct drm_tegra_fence *fence;
+    struct xorg_drm_tegra_fence *fence;
     int err;
 
-    err = drm_tegra_job_submit(tegra->job, &fence);
+    err = xorg_drm_tegra_job_submit(tegra->job, &fence);
     if (err < 0) {
         ErrorMsg("failed to submit job: %d\n", err);
         goto free_job;
     }
 
-    err = drm_tegra_fence_wait(fence);
+    err = xorg_drm_tegra_fence_wait(fence);
     if (err < 0)
         ErrorMsg("failed to wait for fence: %d\n", err);
 
-    drm_tegra_fence_free(fence);
+    xorg_drm_tegra_fence_free(fence);
 
 free_job:
-    drm_tegra_job_free(tegra->job);
+    xorg_drm_tegra_job_free(tegra->job);
     tegra->pushbuf = NULL;
     tegra->job = NULL;
 }
@@ -607,13 +609,13 @@ void TegraEXAScreenInit(ScreenPtr pScreen)
         goto free_exa;
     }
 
-    err = drm_tegra_channel_open(&priv->gr2d, tegra->drm, DRM_TEGRA_GR2D);
+    err = xorg_drm_tegra_channel_open(&priv->gr2d, tegra->drm, DRM_TEGRA_GR2D);
     if (err < 0) {
         ErrorMsg("failed to open 2D channel: %d\n", err);
         goto free_priv;
     }
 
-    err = drm_tegra_bo_new(&priv->bo, tegra->drm, 0, 4096);
+    err = xorg_drm_tegra_bo_new(&priv->bo, tegra->drm, 0, 4096);
     if (err < 0) {
         ErrorMsg("failed to create buffer: %d\n", err);
         goto close_gr2d;
@@ -667,9 +669,9 @@ void TegraEXAScreenInit(ScreenPtr pScreen)
     return;
 
 put_bo:
-    drm_tegra_bo_put(priv->bo);
+    xorg_drm_tegra_bo_put(priv->bo);
 close_gr2d:
-    drm_tegra_channel_close(priv->gr2d);
+    xorg_drm_tegra_channel_close(priv->gr2d);
 free_priv:
     free(priv);
 free_exa:
@@ -686,8 +688,8 @@ void TegraEXAScreenExit(ScreenPtr pScreen)
         exaDriverFini(pScreen);
         free(priv->driver);
 
-        drm_tegra_channel_close(priv->gr2d);
-        drm_tegra_bo_put(priv->bo);
+        xorg_drm_tegra_channel_close(priv->gr2d);
+        xorg_drm_tegra_bo_put(priv->bo);
         free(priv);
     }
 }

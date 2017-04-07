@@ -30,10 +30,10 @@
 #include <libdrm/tegra.h>
 
 typedef struct _TegraEXARec{
-    struct drm_tegra_pushbuf *pushbuf;
-    struct drm_tegra_channel *gr2d;
-    struct drm_tegra_job *job;
-    struct drm_tegra_bo *bo;
+    struct xorg_drm_tegra_pushbuf *pushbuf;
+    struct xorg_drm_tegra_channel *gr2d;
+    struct xorg_drm_tegra_job *job;
+    struct xorg_drm_tegra_bo *bo;
 
     ExaDriverPtr driver;
 } *TegraEXAPtr;

@@ -525,6 +525,7 @@ drmmode_crtc_init(ScrnInfoPtr pScrn, drmmode_ptr drmmode, int num)
     priv = xnfcalloc(sizeof(*priv), 1);
     priv->mode_crtc = drmModeGetCrtc(drmmode->fd, crtc_id);
     priv->drmmode = drmmode;
+    priv->crtc_pipe = num;
     crtc->driver_private = priv;
 
     if (!drmmode->want_sw_cursor && !drmmode->need_sw_cursor) {

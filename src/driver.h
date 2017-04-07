@@ -51,7 +51,7 @@ typedef struct
 
 typedef struct _TegraRec
 {
-    struct drm_tegra *drm;
+    struct xorg_drm_tegra *drm;
     int fd;
 
     EntPtr entityPrivate;
@@ -78,5 +78,7 @@ typedef struct _TegraRec
 
 void TegraEXAScreenInit(ScreenPtr pScreen);
 void TegraEXAScreenExit(ScreenPtr pScreen);
+
+void TegraXvInit(ScreenPtr pScreen);
 
 /* vim: set et sts=4 sw=4 ts=4: */

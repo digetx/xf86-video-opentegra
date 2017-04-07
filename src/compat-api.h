@@ -28,6 +28,9 @@
 #ifndef COMPAT_API_H
 #define COMPAT_API_H
 
+#include <xorg/glyphstr.h>
+#include <xorg/xf86.h>
+
 #ifndef GLYPH_HAS_GLYPH_PICTURE_ACCESSOR
 #define GetGlyphPicture(g, s) GlyphPicture((g))[(s)->myNum]
 #define SetGlyphPicture(g, s, p) GlyphPicture((g))[(s)->myNum] = p

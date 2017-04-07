@@ -63,6 +63,8 @@
 #include "compat-api.h"
 #include "driver.h"
 
+#include "drm/tegra.h"
+
 static SymTabRec Chipsets[] = {
     { 0, "kms" },
     { -1, NULL }
@@ -355,7 +357,7 @@ TegraPreInit(ScrnInfoPtr pScrn, int flags)
     if (tegra->fd < 0)
         return FALSE;
 
-    ret = drm_tegra_new(&tegra->drm, tegra->fd);
+    ret = xorg_drm_tegra_new(&tegra->drm, tegra->fd);
     if (ret < 0) {
         close(tegra->fd);
         return FALSE;
@@ -604,7 +606,7 @@ TegraCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 
     TegraEXAScreenExit(pScreen);
 
-    drm_tegra_close(tegra->drm);
+    xorg_drm_tegra_close(tegra->drm);
 
     pScreen->CreateScreenResources = tegra->createScreenResources;
     pScreen->BlockHandler = tegra->BlockHandler;
@@ -750,6 +752,8 @@ TegraScreenInit(SCREEN_INIT_ARGS_DECL)
 
     if (serverGeneration == 1)
         xf86ShowUnusedOptions(pScrn->scrnIndex, pScrn->options);
+
+    TegraXvInit(pScreen);
 
     return TegraEnterVT(VT_FUNC_ARGS);
 }

@@ -38,3 +38,15 @@ opentegra_drv_la_SOURCES = \
 	 drmmode_display.c \
 	 drmmode_display.h \
 	 exa.c
+
+opentegra_drv_la_SOURCES += \
+	drm/channel.c \
+	drm/fence.c \
+	drm/job.c \
+	drm/private.h \
+	drm/pushbuf.c \
+	drm/tegra.c
+
+opentegra_drv_la_SOURCES += \
+	 video_overlay.c \
+	 drm_plane.c
