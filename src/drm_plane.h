@@ -60,6 +60,8 @@ int drm_get_overlay_plane(int drm_fd, int crtc_pipe, uint32_t format,
 
 int drm_get_primary_plane(int drm_fd, int crtc_pipe, uint32_t *plane_id);
 
+int drm_get_cursor_plane(int drm_fd, int crtc_pipe, uint32_t *plane_id);
+
 void drm_copy_data_to_fb(drm_overlay_fb *fb, uint8_t *data, int swap);
 
 #endif /* TEGRA_DRM_PANLE_H */

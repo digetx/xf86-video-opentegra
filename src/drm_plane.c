@@ -504,6 +504,52 @@ err:
     return -EFAULT;
 }
 
+int drm_get_cursor_plane(int drm_fd, int crtc_pipe, uint32_t *plane_id)
+{
+    drmModePlaneRes *res;
+    drmModePlane *p;
+    uint32_t id = 0;
+    int i;
+
+    if (drmSetClientCap(drm_fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1)) {
+        ErrorMsg("Failed to set universal planes CAP\n");
+        goto err;
+    }
+
+    res = drmModeGetPlaneResources(drm_fd);
+    if (!res)
+        goto err;
+
+    for (i = 0; i < res->count_planes && !id; i++) {
+        p = drmModeGetPlane(drm_fd, res->planes[i]);
+        if (!p)
+            continue;
+
+        if (p->possible_crtcs & (1 << crtc_pipe)) {
+            if (drm_plane_type(drm_fd, p->plane_id) == DRM_PLANE_TYPE_CURSOR) {
+                id = p->plane_id;
+                break;
+            }
+        }
+
+        drmModeFreePlane(p);
+    }
+
+    drmModeFreePlaneResources(res);
+
+    if (!id)
+        goto err;
+
+    *plane_id = id;
+
+    return 0;
+
+err:
+    ErrorMsg("Failed to get cursor plane\n");
+
+    return -EFAULT;
+}
+
 void drm_copy_data_to_fb(drm_overlay_fb *fb, uint8_t *data, int swap)
 {
     if (!format_planar(fb->format)) {

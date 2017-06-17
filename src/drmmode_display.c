@@ -27,7 +27,7 @@
 
 #include "driver.h"
 
-static struct dumb_bo *
+struct dumb_bo *
 dumb_bo_create(struct drm_tegra *drm,
                const unsigned width, const unsigned height,
                const unsigned bpp)
@@ -57,7 +57,7 @@ err_free:
     return NULL;
 }
 
-static int dumb_bo_map(int fd, struct dumb_bo *bo)
+int dumb_bo_map(int fd, struct dumb_bo *bo)
 {
     if (bo->ptr)
         return 0;
@@ -73,7 +73,7 @@ static int dumb_bo_unmap(int fd, struct dumb_bo *bo)
 }
 #endif
 
-static int dumb_bo_destroy(struct dumb_bo *bo)
+int dumb_bo_destroy(struct dumb_bo *bo)
 {
     drm_tegra_bo_unref(bo->bo);
     free(bo);
@@ -321,6 +321,58 @@ done:
 static void
 drmmode_set_cursor_colors(xf86CrtcPtr crtc, int bg, int fg)
 {
+    TegraPtr tegra = TegraPTR(crtc->scrn);
+    drmmode_crtc_private_ptr drmmode_crtc = crtc->driver_private;
+    drmModeObjectPropertiesPtr properties;
+    drmModePropertyPtr property;
+    drmModeAtomicReqPtr req;
+    uint32_t plane_id;
+    uint32_t bgc = 0;
+    uint32_t fgc = 0;
+    unsigned int i;
+    int ret;
+
+    ret = drm_get_cursor_plane(tegra->fd, drmmode_crtc->crtc_pipe,
+                               &plane_id);
+    if (ret)
+        return;
+
+    req = drmModeAtomicAlloc();
+    if (!req)
+        return;
+
+    /* convert RGB to BGR */
+    bgc |= (bg & 0xff00ff00);
+    bgc |= (bg & 0x000000ff) << 16;
+    bgc |= (bg & 0x00ff0000) >> 16;
+
+    fgc |= (fg & 0xff00ff00);
+    fgc |= (fg & 0x000000ff) << 16;
+    fgc |= (fg & 0x00ff0000) >> 16;
+
+    properties = drmModeObjectGetProperties(tegra->fd, plane_id,
+                                            DRM_MODE_OBJECT_PLANE);
+    for (i = 0; properties && i < properties->count_props; i++) {
+        property = drmModeGetProperty(tegra->fd,
+                                      properties->props[i]);
+        if (!property)
+            continue;
+
+        if (!strcmp(property->name, "cursor foreground color")) {
+            drmModeAtomicAddProperty(req, plane_id, property->prop_id, fgc);
+        }
+
+        if (!strcmp(property->name, "cursor background color")) {
+            drmModeAtomicAddProperty(req, plane_id, property->prop_id, bgc);
+        }
+
+        free(property);
+    }
+
+    drmModeAtomicCommit(tegra->fd, req, 0, NULL);
+
+    free(properties);
+    drmModeAtomicFree(req);
 }
 
 static void
@@ -335,35 +387,21 @@ drmmode_set_cursor_position(xf86CrtcPtr crtc, int x, int y)
 static Bool
 drmmode_set_cursor(xf86CrtcPtr crtc)
 {
+    xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(crtc->scrn);
+    CursorPtr cursor = xf86_config->cursor;
     TegraPtr tegra = TegraPTR(crtc->scrn);
     drmmode_crtc_private_ptr drmmode_crtc = crtc->driver_private;
     drmmode_ptr drmmode = drmmode_crtc->drmmode;
     uint32_t handle = drmmode_crtc->cursor_bo->handle;
-    static Bool use_set_cursor2 = TRUE;
     int ret;
 
-    if (use_set_cursor2) {
-        xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(crtc->scrn);
-        CursorPtr cursor = xf86_config->cursor;
+    if (cursor == NullCursor)
+        return TRUE;
 
-        if (cursor == NullCursor)
-            return TRUE;
-
-        ret =
-            drmModeSetCursor2(drmmode->fd, drmmode_crtc->mode_crtc->crtc_id,
-                              handle, tegra->cursor_width, tegra->cursor_height,
-                              cursor->bits->xhot, cursor->bits->yhot);
-        if (!ret)
-            return TRUE;
-
-        use_set_cursor2 = FALSE;
-    }
-
-    ret = drmModeSetCursor(drmmode->fd, drmmode_crtc->mode_crtc->crtc_id, handle,
-                           tegra->cursor_width, tegra->cursor_height);
-
+    ret = drmModeSetCursor2(drmmode->fd, drmmode_crtc->mode_crtc->crtc_id,
+                            handle, tegra->cursor_width, tegra->cursor_height,
+                            cursor->bits->xhot, cursor->bits->yhot);
     if (ret) {
-        xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(crtc->scrn);
         xf86CursorInfoPtr cursor_info = xf86_config->cursor_info;
 
         cursor_info->MaxWidth = cursor_info->MaxHeight = 0;
@@ -392,6 +430,9 @@ drmmode_load_cursor_argb_check(xf86CrtcPtr crtc, CARD32 *image)
     uint32_t *ptr;
     static Bool first_time = TRUE;
 
+    if (tegra->drmmode.legacy_cursor || tegra->drmmode.sw_cursor)
+        return FALSE;
+
     /* cursor should be mapped already */
     ptr = (uint32_t *) (drmmode_crtc->cursor_bo->ptr);
 
@@ -412,6 +453,44 @@ static void
 drmmode_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 {
     drmmode_load_cursor_argb_check(crtc, image);
+}
+
+/*
+ * The load_cursor_image_check driver hook.
+ *
+ * Sets the hardware cursor by calling the drmModeSetCursor2 ioctl.
+ * On failure, returns FALSE indicating that the X server should fall
+ * back to software cursors.
+ */
+static Bool
+drmmode_load_cursor_image_check(xf86CrtcPtr crtc, CARD8 *image)
+{
+    TegraPtr tegra = TegraPTR(crtc->scrn);
+    drmmode_crtc_private_ptr drmmode_crtc = crtc->driver_private;
+    static Bool first_time = TRUE;
+
+    if (!tegra->drmmode.legacy_cursor || tegra->drmmode.sw_cursor)
+        return FALSE;
+
+    /* cursor should be mapped already */
+    memcpy(drmmode_crtc->cursor_bo->ptr, image,
+           tegra->cursor_width * tegra->cursor_height / 4);
+
+    if (drmmode_crtc->cursor_up || first_time) {
+        Bool ret = drmmode_set_cursor(crtc);
+        if (!drmmode_crtc->cursor_up)
+            drmmode_hide_cursor(crtc);
+        first_time = FALSE;
+        return ret;
+    }
+
+    return TRUE;
+}
+
+static void
+drmmode_load_cursor_image(xf86CrtcPtr crtc, CARD8 *image)
+{
+    drmmode_load_cursor_image_check(crtc, image);
 }
 
 static void
@@ -501,8 +580,10 @@ static const xf86CrtcFuncsRec drmmode_crtc_funcs = {
     .hide_cursor = drmmode_hide_cursor,
 #if XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(1,15,99,902,0)
     .load_cursor_argb_check = drmmode_load_cursor_argb_check,
+    .load_cursor_image_check = drmmode_load_cursor_image_check,
 #endif
     .load_cursor_argb = drmmode_load_cursor_argb,
+    .load_cursor_image  = drmmode_load_cursor_image,
 
     .gamma_set = drmmode_crtc_gamma_set,
     .destroy = NULL, /* XXX */

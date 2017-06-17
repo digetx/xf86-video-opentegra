@@ -41,14 +41,16 @@ static SymTabRec Chipsets[] = {
 typedef enum
 {
     OPTION_SW_CURSOR,
+    OPTION_LEGACY_CURSOR,
     OPTION_DEVICE_PATH,
     OPTION_SHADOW_FB,
 } TegraOptions;
 
 static const OptionInfoRec Options[] = {
-    { OPTION_SW_CURSOR, "SWcursor", OPTV_BOOLEAN, { 0 }, FALSE },
-    { OPTION_DEVICE_PATH, "device", OPTV_STRING, { 0 }, FALSE },
-    { OPTION_SHADOW_FB, "ShadowFB", OPTV_BOOLEAN, { 0 }, FALSE },
+    { OPTION_SW_CURSOR,     "SWcursor",     OPTV_BOOLEAN, { 0 }, FALSE },
+    { OPTION_LEGACY_CURSOR, "LegacyCursor", OPTV_BOOLEAN, { 0 }, FALSE },
+    { OPTION_DEVICE_PATH,   "device",       OPTV_STRING,  { 0 }, FALSE },
+    { OPTION_SHADOW_FB,     "ShadowFB",     OPTV_BOOLEAN, { 0 }, FALSE },
     { -1, NULL, OPTV_NONE, { 0 }, FALSE }
 };
 
@@ -146,6 +148,94 @@ static void dispatch_slave_dirty(ScreenPtr pScreen)
     }
 }
 #endif
+
+static Bool
+TegraCheckHwCursor(TegraPtr tegra, Bool legacy)
+{
+    struct dumb_bo *bo;
+    drmModeObjectPropertiesPtr properties;
+    drmModePropertyPtr property;
+    drmModeAtomicReqPtr req;
+    drmModeResPtr res;
+    unsigned success;
+    uint32_t plane_id;
+    unsigned int i;
+    int ret;
+
+    ret = drmSetClientCap(tegra->fd, DRM_CLIENT_CAP_ATOMIC, 1);
+    if (ret < 0)
+        return FALSE;
+
+    res = drmModeGetResources(tegra->fd);
+    if (!res)
+        return FALSE;
+
+    bo = dumb_bo_create(tegra->drm, 64, 64, 32);
+
+    if (!bo || !res->count_crtcs) {
+        free(res);
+        return FALSE;
+    }
+
+    success = res->count_crtcs;
+
+    while (res->count_crtcs--) {
+        ret = drm_get_cursor_plane(tegra->fd, res->count_crtcs, &plane_id);
+        if (ret)
+            break;
+
+        properties = drmModeObjectGetProperties(tegra->fd, plane_id,
+                                                DRM_MODE_OBJECT_PLANE);
+
+        for (i = 0; properties && i < properties->count_props; i++) {
+            property = drmModeGetProperty(tegra->fd,
+                                          properties->props[i]);
+            if (!property)
+                continue;
+
+            if (strcmp(property->name, "legacy cursor") != 0) {
+                free(property);
+                continue;
+            }
+
+            req = drmModeAtomicAlloc();
+            if (!req) {
+                free(property);
+                break;
+            }
+
+            ret = drmModeAtomicAddProperty(req, plane_id,
+                                           property->prop_id,
+                                           legacy);
+            if (ret >= 0)
+                ret = drmModeAtomicCommit(tegra->fd, req, 0, NULL);
+
+            drmModeAtomicFree(req);
+            free(property);
+
+            if (ret >= 0) {
+                ret = drmModeSetCursor(tegra->fd, res->crtcs[res->count_crtcs],
+                                       bo->handle, 64, 64);
+
+                drmModeSetCursor(tegra->fd, res->crtcs[res->count_crtcs],
+                                 0, 0, 0);
+            }
+            if (ret >= 0)
+                success--;
+            break;
+        }
+
+        free(properties);
+    }
+
+    dumb_bo_destroy(bo);
+    free(res);
+
+    if (!!success)
+        return FALSE;
+
+    return TRUE;
+}
 
 static Bool
 GetRec(ScrnInfoPtr pScrn)
@@ -296,6 +386,8 @@ TegraPreInit(ScrnInfoPtr pScrn, int flags)
     EntityInfoPtr pEnt;
     EntPtr tegraEnt = NULL;
     Bool prefer_shadow = TRUE;
+    Bool prefer_swcursor = FALSE;
+    Bool prefer_legacycursor = FALSE;
     uint64_t value = 0;
     int ret;
     int bppflags;
@@ -424,8 +516,34 @@ TegraPreInit(ScrnInfoPtr pScrn, int flags)
     if (!xf86SetDefaultVisual(pScrn, -1))
         return FALSE;
 
-    if (xf86ReturnOptValBool(tegra->Options, OPTION_SW_CURSOR, TRUE))
-        tegra->drmmode.sw_cursor = TRUE;
+    if (xf86ReturnOptValBool(tegra->Options, OPTION_SW_CURSOR, FALSE))
+        prefer_swcursor = TRUE;
+
+    if (xf86ReturnOptValBool(tegra->Options, OPTION_LEGACY_CURSOR, FALSE))
+        prefer_legacycursor = TRUE;
+
+    tegra->drmmode.sw_cursor = TRUE;
+
+    if (!prefer_swcursor) {
+        if (!prefer_legacycursor)
+            tegra->drmmode.sw_cursor = !TegraCheckHwCursor(tegra, FALSE);
+
+        if (tegra->drmmode.sw_cursor) {
+            tegra->drmmode.legacy_cursor = TegraCheckHwCursor(tegra, TRUE);
+            tegra->drmmode.sw_cursor = !tegra->drmmode.legacy_cursor;
+        }
+    }
+
+    xf86DrvMsg(pScrn->scrnIndex, X_INFO,
+               "SWcursor: preferred %s, enabled %s\n",
+               prefer_swcursor ? "YES" : "NO",
+               tegra->drmmode.sw_cursor ? "YES" : "NO");
+
+    xf86DrvMsg(pScrn->scrnIndex, X_INFO,
+               "HW cursor: enabled %s %s\n",
+               tegra->drmmode.sw_cursor ? "NO" : "YES",
+               tegra->drmmode.sw_cursor ? "" :
+               (tegra->drmmode.legacy_cursor ? "(2bit)" : "(RGBA)"));
 
     ret = drmGetCap(tegra->fd, DRM_CAP_DUMB_PREFER_SHADOW, &value);
     if (!ret)
@@ -633,6 +751,9 @@ TegraCloseScreen(CLOSE_SCREEN_ARGS_DECL)
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
     TegraPtr tegra = TegraPTR(pScrn);
 
+    if (!tegra->drmmode.sw_cursor)
+        xf86_cursors_fini(pScreen);
+
     if (tegra->damage) {
         DamageUnregister(&pScreen->GetScreenPixmap(pScreen)->drawable,
                          tegra->damage);
@@ -648,6 +769,9 @@ TegraCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 
     drmmode_uevent_fini(pScrn, &tegra->drmmode);
     drmmode_free_bos(pScrn, &tegra->drmmode);
+
+    if (!tegra->drmmode.sw_cursor)
+        TegraCheckHwCursor(tegra, FALSE);
 
     if (pScrn->vtSema)
         TegraLeaveVT(VT_FUNC_ARGS);
@@ -768,10 +892,20 @@ TegraScreenInit(SCREEN_INIT_ARGS_DECL)
     miDCInitialize(pScreen, xf86GetPointerScreenFuncs());
 
     /* Need to extend HWcursor support to handle mask interleave */
-    if (!tegra->drmmode.sw_cursor)
-        xf86_cursors_init(pScreen, tegra->cursor_width, tegra->cursor_height,
-                          HARDWARE_CURSOR_SOURCE_MASK_INTERLEAVE_64 |
-                          HARDWARE_CURSOR_ARGB);
+    if (!tegra->drmmode.sw_cursor) {
+        if (tegra->drmmode.legacy_cursor)
+            xf86_cursors_init(pScreen,
+                              tegra->cursor_width, tegra->cursor_height,
+                              HARDWARE_CURSOR_SOURCE_MASK_INTERLEAVE_16 |
+                              HARDWARE_CURSOR_SWAP_SOURCE_AND_MASK |
+                              HARDWARE_CURSOR_INVERT_MASK);
+        else
+            xf86_cursors_init(pScreen,
+                              tegra->cursor_width, tegra->cursor_height,
+                              HARDWARE_CURSOR_SOURCE_MASK_INTERLEAVE_64 |
+                              HARDWARE_CURSOR_ARGB);
+
+    }
 
     /* Must force it before EnterVT, so we are in control of VT and
      * later memory should be bound when allocating, e.g rotate_mem */

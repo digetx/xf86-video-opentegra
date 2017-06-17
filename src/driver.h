@@ -49,6 +49,7 @@
 
 #include <libdrm/drm.h>
 #include <libdrm/drm_fourcc.h>
+#include <libdrm/tegra.h>
 #include <libdrm/tegra_drm.h>
 
 #include <X11/extensions/Xv.h>

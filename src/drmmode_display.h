@@ -57,6 +57,7 @@ typedef struct {
 #endif
     drmEventContext event_context;
     struct dumb_bo *front_bo;
+    Bool legacy_cursor;
     Bool sw_cursor;
 
     Bool shadow_enable;
@@ -127,6 +128,13 @@ void *drmmode_map_slave_bo(drmmode_ptr drmmode, TegraPixmapPrivPtr ppriv);
 Bool drmmode_SetSlaveBO(PixmapPtr ppix, drmmode_ptr drmmode, int fd_handle,
                         int pitch, int size);
 #endif
+
+extern struct dumb_bo *
+dumb_bo_create(struct drm_tegra *drm,
+               const unsigned width, const unsigned height,
+               const unsigned bpp);
+extern int dumb_bo_map(int fd, struct dumb_bo *bo);
+extern int dumb_bo_destroy(struct dumb_bo *bo);
 
 extern Bool drmmode_pre_init(ScrnInfoPtr pScrn, drmmode_ptr drmmode, int cpp);
 void drmmode_adjust_frame(ScrnInfoPtr pScrn, drmmode_ptr drmmode, int x, int y);
