@@ -30,6 +30,8 @@
 
 #define MAKE_ATOM(a) MakeAtom(a, sizeof(a) - 1, TRUE)
 
+#define DEFAULT_COLOR_KEY 0xFF4AF6
+
 static Atom xvColorKey;
 
 typedef struct TegraOverlay {
@@ -48,6 +50,9 @@ typedef struct TegraOverlay {
     int dst_y;
     int dst_w;
     int dst_h;
+
+    uint32_t color_key;
+    Bool ckey_enb;
 } TegraOverlay, *TegraOverlayPtr;
 
 typedef struct TegraVideo {
@@ -57,6 +62,9 @@ typedef struct TegraVideo {
 
     uint8_t passthrough_data[PASSTHROUGH_DATA_SIZE];
     Bool passthrough;
+
+    uint32_t color_key;
+    Bool ckey_probed;
 } TegraVideo, *TegraVideoPtr;
 
 typedef struct TegraXvAdaptor {
@@ -161,6 +169,156 @@ static uint32_t xv_fourcc_to_drm(int format_id)
     return 0xFFFFFFFF;
 }
 
+static Bool TegraVideoOverlayInitialize(TegraVideoPtr priv, ScrnInfoPtr scrn,
+                                        int overlay_id)
+{
+    TegraOverlayPtr overlay = &priv->overlay[overlay_id];
+    TegraPtr tegra          = TegraPTR(scrn);
+    Bool ret                = FALSE;
+    drmModeResPtr res;
+    uint32_t plane_id;
+
+    if (overlay->ready)
+        return TRUE;
+
+    res = drmModeGetResources(tegra->fd);
+    if (!res)
+        goto end;
+
+    if (overlay_id > res->count_crtcs)
+        goto end;
+
+    if (drm_get_overlay_plane(tegra->fd, overlay_id,
+                              DRM_FORMAT_YUV420, &plane_id) < 0)
+        goto end;
+
+    overlay->crtc_id   = res->crtcs[overlay_id];
+    overlay->plane_id  = plane_id;
+    overlay->ready     = TRUE;
+
+    ret = TRUE;
+end:
+    free(res);
+
+    return ret;
+}
+
+static Bool TegraVideoOverlaySetColorKey(TegraVideoPtr priv,
+                                         ScrnInfoPtr scrn,
+                                         int id, uint32_t color_key,
+                                         Bool enable)
+{
+    TegraPtr tegra          = TegraPTR(scrn);
+    TegraOverlayPtr overlay = &priv->overlay[id];
+    drmModeObjectPropertiesPtr properties;
+    drmModePropertyPtr property;
+    drmModeAtomicReqPtr req;
+    uint32_t plane_id;
+    uint32_t ckey_abgr = 0;
+    unsigned int ckey_not_changed = 0;
+    unsigned int i;
+    int ret = 0;
+
+    if (overlay->ckey_enb != enable)
+        ckey_not_changed += 1;
+
+    if (overlay->color_key != color_key)
+        ckey_not_changed += 2;
+
+    if (ckey_not_changed == 0)
+        return TRUE;
+
+    req = drmModeAtomicAlloc();
+    if (!req)
+        return FALSE;
+
+    if (overlay->color_key == color_key)
+        goto ckey_enable;
+
+    /* convert ARGB to ABGR */
+    ckey_abgr |= (color_key & 0xff00ff00);
+    ckey_abgr |= (color_key & 0x000000ff) << 16;
+    ckey_abgr |= (color_key & 0x00ff0000) >> 16;
+
+    properties = drmModeObjectGetProperties(tegra->fd, overlay->crtc_id,
+                                            DRM_MODE_OBJECT_CRTC);
+    if (!properties)
+        ret = -1;
+
+    for (i = 0; ret >= 0 && i < properties->count_props; i++) {
+        property = drmModeGetProperty(tegra->fd,
+                                      properties->props[i]);
+        if (!property)
+            continue;
+
+        if (!strcmp(property->name, "color key 0 lower margin") ||
+            !strcmp(property->name, "color key 0 upper margin"))
+        {
+            ret = drmModeAtomicAddProperty(req, overlay->crtc_id,
+                                           property->prop_id,
+                                           ckey_abgr);
+            ckey_not_changed--;
+        }
+
+        free(property);
+    }
+
+    free(properties);
+
+    if (ret < 0)
+        goto atomic_free;
+
+ckey_enable:
+    if (overlay->ckey_enb == enable)
+        goto atomic_commit;
+
+    ret = drm_get_primary_plane(tegra->fd, id, &plane_id);
+    if (ret)
+        goto atomic_free;
+
+    properties = drmModeObjectGetProperties(tegra->fd, plane_id,
+                                            DRM_MODE_OBJECT_PLANE);
+    if (!properties)
+        ret = -1;
+
+    for (i = 0; ret >= 0 && i < properties->count_props; i++) {
+        property = drmModeGetProperty(tegra->fd,
+                                      properties->props[i]);
+        if (!property)
+            continue;
+
+        if (!strcmp(property->name, "color key 0 enabled")) {
+            ret = drmModeAtomicAddProperty(req, plane_id,
+                                           property->prop_id,
+                                           enable);
+            i = properties->count_props;
+            ckey_not_changed--;
+        }
+
+        free(property);
+    }
+
+    free(properties);
+
+atomic_commit:
+    if (ckey_not_changed)
+        ret = -1;
+
+    if (ret >= 0)
+        ret = drmModeAtomicCommit(tegra->fd, req, 0, NULL);
+
+atomic_free:
+    drmModeAtomicFree(req);
+
+    if (ret < 0)
+        return FALSE;
+
+    overlay->color_key = color_key;
+    overlay->ckey_enb = enable;
+
+    return TRUE;
+}
+
 static void TegraVideoVSync(TegraVideoPtr priv, ScrnInfoPtr scrn, int id)
 {
     TegraOverlayPtr overlay = &priv->overlay[id];
@@ -233,7 +391,7 @@ static void TegraVideoOverlayShow(TegraVideoPtr priv,
 }
 
 static void TegraVideoOverlayClose(TegraVideoPtr priv, ScrnInfoPtr scrn,
-                                   int id)
+                                   int id, Bool cleanup)
 {
     TegraOverlayPtr overlay = &priv->overlay[id];
     TegraPtr tegra          = TegraPTR(scrn);
@@ -241,6 +399,10 @@ static void TegraVideoOverlayClose(TegraVideoPtr priv, ScrnInfoPtr scrn,
 
     if (!overlay->ready)
         return;
+
+    if (cleanup)
+        TegraVideoOverlaySetColorKey(priv, scrn, id, DEFAULT_COLOR_KEY,
+                                     FALSE);
 
     ret = drmModeSetPlane(tegra->fd, overlay->plane_id, id,
                           0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -385,8 +547,22 @@ static void TegraVideoOverlayBestSize(ScrnInfoPtr scrn, Bool motion,
 static int TegraVideoOverlaySetAttribute(ScrnInfoPtr scrn, Atom attribute,
                                          INT32 value, void *data)
 {
+    TegraVideoPtr priv = data;
+    int id;
+
     if (attribute != xvColorKey)
         return BadMatch;
+
+    for (id = 0; id < TEGRA_ARRAY_SIZE(priv->overlay); id++) {
+        if (!TegraVideoOverlayInitialize(priv, scrn, id))
+            return BadImplementation;
+
+        if (!TegraVideoOverlaySetColorKey(priv, scrn, id, value, TRUE))
+            return BadImplementation;
+    }
+
+    priv->color_key = value;
+    priv->ckey_probed = TRUE;
 
     return Success;
 }
@@ -394,10 +570,27 @@ static int TegraVideoOverlaySetAttribute(ScrnInfoPtr scrn, Atom attribute,
 static int TegraVideoOverlayGetAttribute(ScrnInfoPtr scrn, Atom attribute,
                                          INT32 *value, void *data)
 {
+    TegraVideoPtr priv = data;
+    int id;
+
     if (attribute != xvColorKey)
         return BadMatch;
 
-    *value = 0x000000;
+    *value = priv->color_key;
+
+    if (priv->ckey_probed)
+        return Success;
+
+    for (id = 0; id < TEGRA_ARRAY_SIZE(priv->overlay); id++) {
+        if (!TegraVideoOverlayInitialize(priv, scrn, id))
+            return BadImplementation;
+
+        if (!TegraVideoOverlaySetColorKey(priv, scrn, id, priv->color_key,
+                                          TRUE))
+            return BadImplementation;
+    }
+
+    priv->ckey_probed = TRUE;
 
     return Success;
 }
@@ -408,40 +601,15 @@ static void TegraVideoOverlayStop(ScrnInfoPtr scrn, void *data, Bool cleanup)
     int id;
 
     for (id = 0; id < TEGRA_ARRAY_SIZE(priv->overlay); id++)
-        TegraVideoOverlayClose(priv, scrn, id);
+        TegraVideoOverlayClose(priv, scrn, id, cleanup);
 
     if (cleanup)
         TegraVideoDestroyFramebuffer(priv, scrn, &priv->fb);
-}
 
-static void TegraVideoOverlayInitialize(TegraVideoPtr priv, ScrnInfoPtr scrn,
-                                        int overlay_id)
-{
-    TegraOverlayPtr overlay = &priv->overlay[overlay_id];
-    TegraPtr tegra          = TegraPTR(scrn);
-    drmModeResPtr res;
-    uint32_t plane_id;
-
-    if (overlay->ready)
-        return;
-
-    res = drmModeGetResources(tegra->fd);
-    if (!res)
-        return;
-
-    if (overlay_id > res->count_crtcs)
-        goto end;
-
-    if (drm_get_overlay_plane(tegra->fd, overlay_id,
-                              DRM_FORMAT_YUV420, &plane_id) < 0)
-        goto end;
-
-    overlay->crtc_id   = res->crtcs[overlay_id];
-    overlay->plane_id  = plane_id;
-    overlay->ready     = TRUE;
-
-end:
-    free(res);
+    if (cleanup) {
+        priv->color_key = DEFAULT_COLOR_KEY;
+        priv->ckey_probed = FALSE;
+    }
 }
 
 static void TegraVideoOverlayPutImageOnOverlay(TegraVideoPtr priv,
@@ -470,6 +638,27 @@ static void TegraVideoOverlayPutImageOnOverlay(TegraVideoPtr priv,
     TegraVideoOverlayShow(priv, scrn, overlay_id,
                           src_x, src_y, src_w, src_h,
                           dst_x, dst_y, dst_w, dst_h);
+}
+
+static int TegraVideoOverlayCheckVisibility(TegraVideoPtr priv,
+                                            ScrnInfoPtr scrn,
+                                            DrawablePtr draw,
+                                            int id)
+{
+    TegraOverlayPtr overlay = &priv->overlay[id];
+    int coverage;
+
+    if (overlay->ready)
+        coverage = tegra_crtc_coverage(draw, id);
+    else
+        coverage = 0;
+
+    overlay->visible = !!coverage;
+
+    if (!overlay->visible)
+        TegraVideoOverlayClose(priv, scrn, id, FALSE);
+
+    return coverage;
 }
 
 static int TegraVideoOverlayPutImage(ScrnInfoPtr scrn,
@@ -504,25 +693,21 @@ static int TegraVideoOverlayPutImage(ScrnInfoPtr scrn,
         passthrough = TRUE;
     }
 
+    for (id = 0; id < TEGRA_ARRAY_SIZE(priv->overlay); id++)
+        if (!TegraVideoOverlayInitialize(priv, scrn, id))
+            return BadImplementation;
+
     if (!TegraVideoOverlayCreateFB(priv, scrn, xv_fourcc_to_drm(format),
-                                   width, height, passthrough, buf) != Success)
+                                   width, height, passthrough, buf))
         return BadImplementation;
 
-    for (id = 0; id < TEGRA_ARRAY_SIZE(priv->overlay); id++)
-        TegraVideoOverlayInitialize(priv, scrn, id);
-
     for (id = 0; id < TEGRA_ARRAY_SIZE(priv->overlay); id++) {
-        coverage = tegra_crtc_coverage(draw, id);
-        priv->overlay[id].visible = !!coverage;
-
-        if (!coverage)
-            TegraVideoOverlayClose(priv, scrn, id);
-        else
-            visible = TRUE;
+        coverage = TegraVideoOverlayCheckVisibility(priv, scrn, draw, id);
 
         if (coverage > best_coverage) {
             best_coverage = coverage;
             best_id = id;
+            visible = TRUE;
         }
     }
 
@@ -635,6 +820,7 @@ void TegraXvScreenInit(ScreenPtr pScreen)
     adaptor->xv.pPortPrivates        = &adaptor->dev_union;
     adaptor->xv.pPortPrivates[0].ptr = &adaptor->private;
     adaptor->xv.flags                = VIDEO_OVERLAID_IMAGES;
+    adaptor->private.color_key       = DEFAULT_COLOR_KEY;
 
     xvColorKey = MAKE_ATOM("XV_COLORKEY");
     xvAdaptor = &adaptor->xv;
