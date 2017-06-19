@@ -162,10 +162,6 @@ TegraCheckHwCursor(TegraPtr tegra, Bool legacy)
     unsigned int i;
     int ret;
 
-    ret = drmSetClientCap(tegra->fd, DRM_CLIENT_CAP_ATOMIC, 1);
-    if (ret < 0)
-        return FALSE;
-
     res = drmModeGetResources(tegra->fd);
     if (!res)
         return FALSE;
@@ -461,6 +457,14 @@ TegraPreInit(ScrnInfoPtr pScrn, int flags)
         close(tegra->fd);
         return FALSE;
     }
+
+    ret = drmSetClientCap(tegra->fd, DRM_CLIENT_CAP_ATOMIC, 1);
+    if (ret < 0)
+        return FALSE;
+
+    ret = drmSetClientCap(tegra->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+    if (ret < 0)
+        return FALSE;
 
     tegra->path = drmGetDeviceNameFromFd(tegra->fd);
     tegra->drmmode.fd = tegra->fd;
