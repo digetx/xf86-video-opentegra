@@ -600,6 +600,9 @@ static void TegraVideoOverlayStop(ScrnInfoPtr scrn, void *data, Bool cleanup)
     TegraVideoPtr priv = data;
     int id;
 
+    if (!cleanup)
+        return;
+
     for (id = 0; id < TEGRA_ARRAY_SIZE(priv->overlay); id++)
         TegraVideoOverlayClose(priv, scrn, id, cleanup);
 
