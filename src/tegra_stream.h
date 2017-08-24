@@ -51,7 +51,6 @@ struct tegra_stream {
 
     struct tegra_command_buffer buffer;
     int num_words;
-    uint32_t class_id;
 
     bool op_done_synced;
 };
@@ -74,7 +73,6 @@ int tegra_stream_end(struct tegra_stream *stream);
 int tegra_stream_cleanup(struct tegra_stream *stream);
 int tegra_stream_flush(struct tegra_stream *stream);
 int tegra_stream_push(struct tegra_stream *stream, uint32_t word);
-int tegra_stream_push_setclass(struct tegra_stream *stream, unsigned class_id);
 int tegra_stream_push_reloc(struct tegra_stream *stream,
                             struct drm_tegra_bo *bo, unsigned offset);
 struct tegra_reloc tegra_reloc(const void *var_ptr, struct drm_tegra_bo *bo,

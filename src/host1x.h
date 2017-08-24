@@ -38,8 +38,6 @@
 #define HOST1X_OPCODE_EXTEND(subop, value) \
     ((0xe << 28) | (((subop) & 0xf) << 24) | ((value) & 0xffffff))
 
-#define HOST1X_CLASS_GR2D 0x51
-
 #endif /* HOST1X_H */
 
 /* vim: set et sts=4 sw=4 ts=4: */
