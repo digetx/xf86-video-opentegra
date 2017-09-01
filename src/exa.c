@@ -189,7 +189,8 @@ static Bool TegraEXAModifyPixmapHeader(PixmapPtr pPixmap, int width,
         return FALSE;
 
     if (!priv->bo) {
-        err = drm_tegra_bo_new(&priv->bo, tegra->drm, 0, size);
+        err = drm_tegra_bo_new(&priv->bo, tegra->drm,
+                               DRM_TEGRA_GEM_CREATE_SCATTERED, size);
         if (err < 0) {
             if (!priv->dri)
                 priv->fallback = malloc(size);
