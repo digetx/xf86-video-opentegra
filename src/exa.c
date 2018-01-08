@@ -60,14 +60,17 @@ static inline unsigned int TegraEXAPitch(unsigned int width, unsigned int bpp)
 
 static int TegraEXAMarkSync(ScreenPtr pScreen)
 {
-    /* TODO: implement */
+    ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+    TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
 
-    return 0;
+    /* yes, we are converting pointer to integer, it is fine on ARM */
+    return (intptr_t) ((void *) tegra_stream_get_fence(&tegra->cmds));
 }
 
 static void TegraEXAWaitMarker(ScreenPtr pScreen, int marker)
 {
-    /* TODO: implement */
+    struct drm_tegra_fence *fence = (void *) marker;
+    tegra_stream_put_fence(fence);
 }
 
 static Bool TegraEXAPrepareAccess(PixmapPtr pPix, int idx)
@@ -235,11 +238,12 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
     if (bpp != 32 && bpp != 16 && bpp != 8)
         return FALSE;
 
-    err = tegra_stream_begin(&tegra->cmds);
+    err = tegra_stream_begin(&tegra->cmds, tegra->gr2d);
     if (err < 0)
             return FALSE;
 
     tegra_stream_push_setclass(&tegra->cmds, HOST1X_CLASS_GR2D);
+    tegra_stream_prep(&tegra->cmds, 15);
     tegra_stream_push(&tegra->cmds, HOST1X_OPCODE_MASK(0x9, 0x9));
     tegra_stream_push(&tegra->cmds, 0x0000003a); /* trigger */
     tegra_stream_push(&tegra->cmds, 0x00000000); /* cmdsel */
@@ -254,7 +258,7 @@ static Bool TegraEXAPrepareSolid(PixmapPtr pPixmap, int op, Pixel planemask,
     tegra_stream_push(&tegra->cmds, rop3[op]); /* ropfade */
     tegra_stream_push(&tegra->cmds, HOST1X_OPCODE_MASK(0x2b, 0x9));
     tegra_stream_push_reloc(&tegra->cmds, priv->bo,
-                            exaGetPixmapOffset(pPixmap));
+                            exaGetPixmapOffset(pPixmap), TRUE);
     tegra_stream_push(&tegra->cmds, exaGetPixmapPitch(pPixmap));
     tegra_stream_push(&tegra->cmds, HOST1X_OPCODE_NONINCR(0x46, 1));
     tegra_stream_push(&tegra->cmds, 0); /* non-tiled */
@@ -277,7 +281,6 @@ static void TegraEXASolid(PixmapPtr pPixmap,
     tegra_stream_push(&tegra->cmds, HOST1X_OPCODE_MASK(0x38, 0x5));
     tegra_stream_push(&tegra->cmds, (py2 - py1) << 16 | (px2 - px1));
     tegra_stream_push(&tegra->cmds, py1 << 16 | px1);
-    tegra_stream_sync(&tegra->cmds, DRM_TEGRA_SYNCPT_COND_OP_DONE);
 }
 
 static void TegraEXADoneSolid(PixmapPtr pPixmap)
@@ -285,8 +288,9 @@ static void TegraEXADoneSolid(PixmapPtr pPixmap)
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pPixmap->drawable.pScreen);
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
 
+    tegra_stream_sync(&tegra->cmds, DRM_TEGRA_SYNCPT_COND_OP_DONE);
     tegra_stream_end(&tegra->cmds);
-    tegra_stream_flush(&tegra->cmds);
+    tegra_stream_submit(&tegra->cmds);
 }
 
 static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
@@ -324,11 +328,12 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
     if (pDstPixmap->drawable.bitsPerPixel != bpp)
         return FALSE;
 
-    err = tegra_stream_begin(&tegra->cmds);
+    err = tegra_stream_begin(&tegra->cmds, tegra->gr2d);
     if (err < 0)
             return FALSE;
 
     tegra_stream_push_setclass(&tegra->cmds, HOST1X_CLASS_GR2D);
+    tegra_stream_prep(&tegra->cmds, 14);
     tegra_stream_push(&tegra->cmds, HOST1X_OPCODE_MASK(0x9, 0x9));
     tegra_stream_push(&tegra->cmds, 0x0000003a); /* trigger */
     tegra_stream_push(&tegra->cmds, 0x00000000); /* cmdsel */
@@ -344,12 +349,12 @@ static Bool TegraEXAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap,
     tegra_stream_push(&tegra->cmds, HOST1X_OPCODE_MASK(0x2b, 0x149));
 
     tegra_stream_push_reloc(&tegra->cmds, dst->bo,
-                            exaGetPixmapOffset(pDstPixmap));
+                            exaGetPixmapOffset(pDstPixmap), TRUE);
     tegra_stream_push(&tegra->cmds,
                       exaGetPixmapPitch(pDstPixmap)); /* dstst */
 
     tegra_stream_push_reloc(&tegra->cmds, src->bo,
-                            exaGetPixmapOffset(pSrcPixmap));
+                            exaGetPixmapOffset(pSrcPixmap), FALSE);
     tegra_stream_push(&tegra->cmds,
                       exaGetPixmapPitch(pSrcPixmap)); /* srcst */
 
@@ -396,7 +401,6 @@ static void TegraEXACopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX,
     tegra_stream_push(&tegra->cmds, height << 16 | width); /* dstsize */
     tegra_stream_push(&tegra->cmds, srcY << 16 | srcX); /* srcps */
     tegra_stream_push(&tegra->cmds, dstY << 16 | dstX); /* dstps */
-    tegra_stream_sync(&tegra->cmds, DRM_TEGRA_SYNCPT_COND_OP_DONE);
 }
 
 static void TegraEXADoneCopy(PixmapPtr pDstPixmap)
@@ -404,8 +408,9 @@ static void TegraEXADoneCopy(PixmapPtr pDstPixmap)
     ScrnInfoPtr pScrn = xf86ScreenToScrn(pDstPixmap->drawable.pScreen);
     TegraEXAPtr tegra = TegraPTR(pScrn)->exa;
 
+    tegra_stream_sync(&tegra->cmds, DRM_TEGRA_SYNCPT_COND_OP_DONE);
     tegra_stream_end(&tegra->cmds);
-    tegra_stream_flush(&tegra->cmds);
+    tegra_stream_submit(&tegra->cmds);
 }
 
 static Bool TegraEXACheckComposite(int op, PicturePtr pSrcPicture,
@@ -491,7 +496,7 @@ void TegraEXAScreenInit(ScreenPtr pScreen)
         goto free_priv;
     }
 
-    err = tegra_stream_create(tegra->drm, priv->gr2d, &priv->cmds, 1);
+    err = tegra_stream_create(tegra->drm, &priv->cmds, 1);
     if (err < 0) {
         ErrorMsg("failed to create command stream: %d\n", err);
         goto close_gr2d;
